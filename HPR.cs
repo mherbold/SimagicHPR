@@ -8,6 +8,13 @@ namespace Simagic
 	{
 		// enums
 
+		public enum Pedals
+		{
+			None,
+			P1000,
+			P2000
+		}
+
 		public enum Channel
 		{
 			Clutch = 0,
@@ -105,20 +112,21 @@ namespace Simagic
 
 		// private members
 
-		private bool initialized = false;
-		private SafeFileHandle? safeFileHandle = null;
-		private int vibrateCommandStructSize = 0;
-		private IntPtr? vibrateCommandBytes = null;
+		private bool _initialized = false;
+		private Pedals _pedals = Pedals.None;
+		private SafeFileHandle? _safeFileHandle = null;
+		private int _vibrateCommandStructSize = 0;
+		private IntPtr? _vibrateCommandBytes = null;
 
-		// call Initialize() to connect to either a Simagic P1000 or Simagic P2000 controller - returns true if we found pedals
+		// call Initialize() to connect to either a Simagic P1000 or Simagic P2000 controller - returns which pedals were found
 
-		public bool Initialize()
+		public Pedals Initialize()
 		{
 			// don't re-initialize if we have already initialized
 
-			if ( initialized )
+			if ( _initialized )
 			{
-				return true;
+				return _pedals;
 			}
 
 			// get the raw device list from windows and try to find either the P1000 or the P2000 pedal controller and open it as a raw device stream
@@ -144,12 +152,18 @@ namespace Simagic
 						{
 							if ( ( deviceInfo.HIDInfo.VendorID == 0x0483 ) && ( deviceInfo.HIDInfo.ProductID == 0x0525 ) ) // check for P1000 pedals
 							{
+								_pedals = Pedals.P1000;
+
 								selectedDeviceHandle = device.hDevice;
+
 								break;
 							}
 							else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0902 ) ) // check for P2000 pedals
 							{
+								_pedals = Pedals.P2000;
+
 								selectedDeviceHandle = device.hDevice;
+
 								break;
 							}
 						}
@@ -158,14 +172,14 @@ namespace Simagic
 
 				if ( selectedDeviceHandle != 0 )
 				{
-					safeFileHandle = OpenRawDeviceStream( selectedDeviceHandle );
+					_safeFileHandle = OpenRawDeviceStream( selectedDeviceHandle );
 
-					if ( safeFileHandle != null )
+					if ( _safeFileHandle != null )
 					{
-						vibrateCommandStructSize = Marshal.SizeOf( typeof( VibrateCommand ) );
-						vibrateCommandBytes = Marshal.AllocHGlobal( vibrateCommandStructSize );
+						_vibrateCommandStructSize = Marshal.SizeOf( typeof( VibrateCommand ) );
+						_vibrateCommandBytes = Marshal.AllocHGlobal( _vibrateCommandStructSize );
 
-						initialized = true;
+						_initialized = true;
 
 						VibratePedal( Channel.Clutch, State.Off, 0, 0 );
 						VibratePedal( Channel.Brake, State.Off, 0, 0 );
@@ -176,7 +190,7 @@ namespace Simagic
 
 			// return true if we found the pedals
 
-			return initialized;
+			return _pedals;
 		}
 
 		// call this Uninitialize() to close down this system
@@ -187,20 +201,20 @@ namespace Simagic
 			VibratePedal( Channel.Brake, State.Off, 0, 0 );
 			VibratePedal( Channel.Throttle, State.Off, 0, 0 );
 
-			initialized = false;
+			_initialized = false;
 
-			if ( safeFileHandle != null )
+			if ( _safeFileHandle != null )
 			{
-				safeFileHandle.Dispose();
+				_safeFileHandle.Dispose();
 
-				safeFileHandle = null;
+				_safeFileHandle = null;
 			}
 
-			if ( vibrateCommandBytes != null )
+			if ( _vibrateCommandBytes != null )
 			{
-				Marshal.FreeHGlobal( (IntPtr) vibrateCommandBytes );
+				Marshal.FreeHGlobal( (IntPtr) _vibrateCommandBytes );
 
-				vibrateCommandBytes = null;
+				_vibrateCommandBytes = null;
 			}
 		}
 
@@ -208,9 +222,9 @@ namespace Simagic
 
 		public void VibratePedal( Channel channel, State state, float frequency, float amplitude )
 		{
-			if ( initialized )
+			if ( _initialized )
 			{
-				if ( ( safeFileHandle != null ) && ( vibrateCommandBytes != null ) )
+				if ( ( _safeFileHandle != null ) && ( _vibrateCommandBytes != null ) )
 				{
 					var intFrequency = (int) Math.Clamp( frequency, 0f, 50f );
 					var intAmplitude = (int) Math.Clamp( amplitude, 0f, 100f );
@@ -223,9 +237,9 @@ namespace Simagic
 						amplitude = (byte) intAmplitude
 					};
 
-					Marshal.StructureToPtr( vibrateCommand, (IntPtr) vibrateCommandBytes, false );
+					Marshal.StructureToPtr( vibrateCommand, (IntPtr) _vibrateCommandBytes, false );
 
-					HidWinApi.HidD_SetFeature( safeFileHandle, (IntPtr) vibrateCommandBytes, vibrateCommandStructSize );
+					HidWinApi.HidD_SetFeature( _safeFileHandle, (IntPtr) _vibrateCommandBytes, _vibrateCommandStructSize );
 				}
 			}
 		}
