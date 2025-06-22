@@ -8,7 +8,7 @@ namespace Simagic
 	{
 		// enums
 
-		public enum Pedals
+		public enum PedalsDevice
 		{
 			None,
 			P1000,
@@ -113,21 +113,18 @@ namespace Simagic
 		// private members
 
 		private bool _initialized = false;
-		private Pedals _pedals = Pedals.None;
+		private PedalsDevice _pedals = PedalsDevice.None;
 		private SafeFileHandle? _safeFileHandle = null;
 		private int _vibrateCommandStructSize = 0;
 		private IntPtr? _vibrateCommandBytes = null;
 
 		// call Initialize() to connect to either a Simagic P1000 or Simagic P2000 controller - returns which pedals were found
 
-		public Pedals Initialize()
+		public PedalsDevice Initialize( bool enabled )
 		{
-			// don't re-initialize if we have already initialized
+			// uninitialize in case we have previously initialized
 
-			if ( _initialized )
-			{
-				return _pedals;
-			}
+			Uninitialize();
 
 			// get the raw device list from windows and try to find either the P1000 or the P2000 pedal controller and open it as a raw device stream
 
@@ -152,7 +149,7 @@ namespace Simagic
 						{
 							if ( ( deviceInfo.HIDInfo.VendorID == 0x0483 ) && ( deviceInfo.HIDInfo.ProductID == 0x0525 ) ) // check for P1000 pedals
 							{
-								_pedals = Pedals.P1000;
+								_pedals = PedalsDevice.P1000;
 
 								selectedDeviceHandle = device.hDevice;
 
@@ -160,7 +157,7 @@ namespace Simagic
 							}
 							else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0902 ) ) // check for P2000 pedals
 							{
-								_pedals = Pedals.P2000;
+								_pedals = PedalsDevice.P2000;
 
 								selectedDeviceHandle = device.hDevice;
 
@@ -170,7 +167,7 @@ namespace Simagic
 					}
 				}
 
-				if ( selectedDeviceHandle != 0 )
+				if ( ( selectedDeviceHandle != 0 ) && enabled )
 				{
 					_safeFileHandle = OpenRawDeviceStream( selectedDeviceHandle );
 
