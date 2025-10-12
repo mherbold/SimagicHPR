@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net7.0-windows10.0.26100.0</TargetFramework>
+    <TargetFrameworks>net7.0-windows;net8.0-windows;net9.0-windows</TargetFrameworks>
+    <RollForward>Major</RollForward>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Title>Simagic HPR</Title>
