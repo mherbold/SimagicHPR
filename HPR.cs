@@ -11,6 +11,8 @@ namespace Simagic
 		public enum PedalsDevice
 		{
 			None,
+			P500,
+			P700,
 			P1000,
 			P2000
 		}
@@ -118,9 +120,9 @@ namespace Simagic
 		private int _vibrateCommandStructSize = 0;
 		private IntPtr? _vibrateCommandBytes = null;
 
-		// call Initialize() to connect to either a Simagic P1000 or Simagic P2000 controller - returns which pedals were found
+		// call Initialize() to connect to a Simagic pedals controller
 
-		public PedalsDevice Initialize( bool enabled )
+		public PedalsDevice Initialize( bool enabled, Action<string>? onDeviceFound = null )
 		{
 			// uninitialize in case we have previously initialized
 
@@ -138,30 +140,54 @@ namespace Simagic
 				{
 					uint size = (uint) Marshal.SizeOf( typeof( User32WinApi.DeviceInfo ) );
 
-					User32WinApi.DeviceInfo deviceInfo = new User32WinApi.DeviceInfo
+					var deviceInfo = new User32WinApi.DeviceInfo
 					{
 						Size = Marshal.SizeOf( typeof( User32WinApi.DeviceInfo ) )
 					};
 
 					if ( User32WinApi.GetRawInputDeviceInfo( device.hDevice, User32WinApi.RIDI_DEVICEINFO, ref deviceInfo, ref size ) > 0 )
 					{
-						if ( ( deviceInfo.Type == (int) User32WinApi.RawInputDeviceType.HID ) && ( deviceInfo.HIDInfo.UsagePage == 0x01 ) && ( deviceInfo.HIDInfo.Usage == 0x04 || deviceInfo.HIDInfo.Usage == 0x05 ) )
+						var isHid = deviceInfo.Type == (int) User32WinApi.RawInputDeviceType.HID;
+
+						if ( isHid )
 						{
-							if ( ( deviceInfo.HIDInfo.VendorID == 0x0483 ) && ( deviceInfo.HIDInfo.ProductID == 0x0525 ) ) // check for P1000 pedals
+							var vid = deviceInfo.HIDInfo.VendorID;
+							var pid = deviceInfo.HIDInfo.ProductID;
+
+							var deviceName = GetDeviceName( device.hDevice ) ?? string.Empty;
+							var friendlyName = !string.IsNullOrEmpty( deviceName ) ? GetFriendlyName( deviceName ) : null;
+							var shownName = !string.IsNullOrWhiteSpace( friendlyName ) ? friendlyName : deviceName;
+
+							var isGameCtrl = ( deviceInfo.HIDInfo.UsagePage == 0x01 ) && ( deviceInfo.HIDInfo.Usage == 0x04 || deviceInfo.HIDInfo.Usage == 0x05 );
+
+							onDeviceFound?.Invoke( $"VID=0x{vid:X4}, PID=0x{pid:X4}, Name={shownName}, IsGameCtrl={isGameCtrl}" );
+
+							if ( isGameCtrl )
 							{
-								_pedals = PedalsDevice.P1000;
+								if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0903 ) )
+								{
+									_pedals = PedalsDevice.P500;
 
-								selectedDeviceHandle = device.hDevice;
+									selectedDeviceHandle = device.hDevice;
+								}
+								else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0905 ) )
+								{
+									_pedals = PedalsDevice.P700;
 
-								break;
-							}
-							else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0902 ) ) // check for P2000 pedals
-							{
-								_pedals = PedalsDevice.P2000;
+									selectedDeviceHandle = device.hDevice;
+								}
+								else if ( ( deviceInfo.HIDInfo.VendorID == 0x0483 ) && ( deviceInfo.HIDInfo.ProductID == 0x0525 ) )
+								{
+									_pedals = PedalsDevice.P1000;
 
-								selectedDeviceHandle = device.hDevice;
+									selectedDeviceHandle = device.hDevice;
+								}
+								else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0902 ) )
+								{
+									_pedals = PedalsDevice.P2000;
 
-								break;
+									selectedDeviceHandle = device.hDevice;
+								}
 							}
 						}
 					}
@@ -171,7 +197,7 @@ namespace Simagic
 				{
 					_safeFileHandle = OpenRawDeviceStream( selectedDeviceHandle );
 
-					if ( _safeFileHandle != null )
+					if ( _safeFileHandle is not null && !_safeFileHandle.IsInvalid )
 					{
 						_vibrateCommandStructSize = Marshal.SizeOf( typeof( VibrateCommand ) );
 						_vibrateCommandBytes = Marshal.AllocHGlobal( _vibrateCommandStructSize );
@@ -181,6 +207,10 @@ namespace Simagic
 						VibratePedal( Channel.Clutch, State.Off, 0, 0 );
 						VibratePedal( Channel.Brake, State.Off, 0, 0 );
 						VibratePedal( Channel.Throttle, State.Off, 0, 0 );
+					}
+					else
+					{
+						_safeFileHandle = null;
 					}
 				}
 			}
@@ -243,6 +273,76 @@ namespace Simagic
 
 		// private functions for internal use
 
+		private static string? GetFriendlyName( string deviceName )
+		{
+			using var safeFileHandle = Kernel32WinApi.CreateFile( deviceName, Kernel32WinApi.GENERIC_READ | Kernel32WinApi.GENERIC_WRITE, Kernel32WinApi.FILE_SHARE_READ | Kernel32WinApi.FILE_SHARE_WRITE, IntPtr.Zero, Kernel32WinApi.OPEN_EXISTING, Kernel32WinApi.FILE_ATTRIBUTE_NORMAL, IntPtr.Zero );
+
+			if ( safeFileHandle is null || safeFileHandle.IsInvalid )
+			{
+				return null;
+			}
+
+			static string? ReadHidString( Func<IntPtr, IntPtr, int, bool> fn, IntPtr h )
+			{
+				const int byteLen = 512;
+
+				var ptr = Marshal.AllocHGlobal( byteLen );
+
+				try
+				{
+					if ( fn( h, ptr, byteLen ) )
+					{
+						return Marshal.PtrToStringUni( ptr );
+					}
+				}
+				finally
+				{
+					Marshal.FreeHGlobal( ptr );
+				}
+
+				return null;
+			}
+
+			var h = safeFileHandle.DangerousGetHandle();
+			var manufacturer = ReadHidString( HidWinApi.HidD_GetManufacturerString, h );
+			var product = ReadHidString( HidWinApi.HidD_GetProductString, h );
+
+			if ( !string.IsNullOrWhiteSpace( manufacturer ) && !string.IsNullOrWhiteSpace( product ) )
+			{
+				return $"{manufacturer} {product}".Trim();
+			}
+
+			return product ?? manufacturer;
+		}
+
+		private static string? GetDeviceName( nint hDevice )
+		{
+			uint charCount = 0;
+
+			var rc = User32WinApi.GetRawInputDeviceInfo( hDevice, User32WinApi.RIDI_DEVICENAME, IntPtr.Zero, ref charCount );
+
+			if ( rc != 0 || charCount == 0 )
+			{
+				return null;
+			}
+
+			var byteCount = checked((int) charCount * sizeof( char ));
+			var buffer = Marshal.AllocHGlobal( byteCount );
+
+			try
+			{
+				var rc2 = User32WinApi.GetRawInputDeviceInfo( hDevice, User32WinApi.RIDI_DEVICENAME, buffer, ref charCount );
+
+				if ( rc2 <= 0 ) return null;
+
+				return Marshal.PtrToStringUni( buffer );
+			}
+			finally
+			{
+				Marshal.FreeHGlobal( buffer );
+			}
+		}
+
 		private static User32WinApi.RAWINPUTDEVICELIST[]? GetRawInputDeviceList()
 		{
 			uint deviceCount = 0;
@@ -270,26 +370,14 @@ namespace Simagic
 
 		private static SafeFileHandle? OpenRawDeviceStream( IntPtr hDevice )
 		{
-			var deviceNamePtr = Marshal.AllocHGlobal( 255 );
-			var deviceNameLength = (uint) 255;
+			var deviceName = GetDeviceName( hDevice );
 
-			var result = User32WinApi.GetRawInputDeviceInfo( hDevice, User32WinApi.RIDI_DEVICENAME, deviceNamePtr, ref deviceNameLength );
-
-			if ( result > 0 )
+			if ( string.IsNullOrEmpty( deviceName ) )
 			{
-				var deviceName = Marshal.PtrToStringAuto( deviceNamePtr );
-
-				Marshal.FreeHGlobal( deviceNamePtr );
-
-				if ( deviceName != null )
-				{
-					var handle = Kernel32WinApi.CreateFile( deviceName, Kernel32WinApi.GENERIC_READ | Kernel32WinApi.GENERIC_WRITE, Kernel32WinApi.FILE_SHARE_READ | Kernel32WinApi.FILE_SHARE_WRITE, 0, Kernel32WinApi.OPEN_EXISTING, 0, 0 );
-
-					return handle;
-				}
+				return null;
 			}
 
-			return null;
+			return Kernel32WinApi.CreateFile( deviceName, Kernel32WinApi.GENERIC_READ | Kernel32WinApi.GENERIC_WRITE, Kernel32WinApi.FILE_SHARE_READ | Kernel32WinApi.FILE_SHARE_WRITE, IntPtr.Zero, Kernel32WinApi.OPEN_EXISTING, Kernel32WinApi.FILE_ATTRIBUTE_NORMAL, IntPtr.Zero );
 		}
 	}
 }

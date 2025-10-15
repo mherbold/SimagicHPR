@@ -15,7 +15,10 @@ namespace Simagic
 
 		public const int OPEN_EXISTING = 3;
 
-		[DllImport( "kernel32.dll", EntryPoint = "CreateFileA", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall, SetLastError = true )]
-		public static extern SafeFileHandle CreateFile( string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr SecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile );
+		public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
+		public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+
+		[DllImport( "kernel32.dll", EntryPoint = "CreateFileW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true )]
+		internal static extern SafeFileHandle CreateFile( string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile );
 	}
 }
