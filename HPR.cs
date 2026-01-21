@@ -119,6 +119,9 @@ namespace Simagic
 		private SafeFileHandle? _safeFileHandle = null;
 		private int _vibrateCommandStructSize = 0;
 		private IntPtr? _vibrateCommandBytes = null;
+		private int[] _lastState = new int[ Enum.GetValues<Channel>().Length ];
+		private int[] _lastFrequency = new int[ Enum.GetValues<Channel>().Length ];
+		private int[] _lastAmplitude = new int[ Enum.GetValues<Channel>().Length ];
 
 		// call Initialize() to connect to a Simagic pedals controller
 
@@ -224,6 +227,13 @@ namespace Simagic
 
 		public void Uninitialize()
 		{
+			for ( var channel = Channel.Clutch; channel <= Channel.Throttle; channel++ )
+			{
+				_lastState[ (int) channel ] = -1;
+				_lastFrequency[ (int) channel ] = -1;
+				_lastAmplitude[ (int) channel ] = -1;
+			}
+
 			VibratePedal( Channel.Clutch, State.Off, 0, 0 );
 			VibratePedal( Channel.Brake, State.Off, 0, 0 );
 			VibratePedal( Channel.Throttle, State.Off, 0, 0 );
@@ -253,20 +263,38 @@ namespace Simagic
 			{
 				if ( ( _safeFileHandle != null ) && ( _vibrateCommandBytes != null ) )
 				{
+					// convert from float to int
+
 					var intFrequency = (int) Math.Clamp( frequency, 0f, 50f );
 					var intAmplitude = (int) Math.Clamp( amplitude, 0f, 100f );
 
-					var vibrateCommand = new VibrateCommand
+					// force state to off if both frequency and amplitude are zero (prevents buzzing pedals)
+
+					if ( ( intFrequency == 0 ) && ( intAmplitude == 0 ) )
 					{
-						channel = (byte) channel,
-						state = (byte) state,
-						frequency = (byte) intFrequency,
-						amplitude = (byte) intAmplitude
-					};
+						state = State.Off;
+					}
 
-					Marshal.StructureToPtr( vibrateCommand, (IntPtr) _vibrateCommandBytes, false );
+					// only send update if something has changed
 
-					HidWinApi.HidD_SetFeature( _safeFileHandle, (IntPtr) _vibrateCommandBytes, _vibrateCommandStructSize );
+					if ( ( _lastState[ (int) channel ] != (int) state ) || ( _lastFrequency[ (int) channel ] != intFrequency ) || ( _lastAmplitude[ (int) channel ] != intAmplitude ) )
+					{
+						_lastState[ (int) channel ] = (int) state;
+						_lastFrequency[ (int) channel ] = intFrequency;
+						_lastAmplitude[ (int) channel ] = intAmplitude;
+
+						var vibrateCommand = new VibrateCommand
+						{
+							channel = (byte) channel,
+							state = (byte) state,
+							frequency = (byte) intFrequency,
+							amplitude = (byte) intAmplitude
+						};
+
+						Marshal.StructureToPtr( vibrateCommand, (IntPtr) _vibrateCommandBytes, false );
+
+						HidWinApi.HidD_SetFeature( _safeFileHandle, (IntPtr) _vibrateCommandBytes, _vibrateCommandStructSize );
+					}
 				}
 			}
 		}
