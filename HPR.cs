@@ -268,10 +268,13 @@ namespace Simagic
 					var intFrequency = (int) Math.Clamp( frequency, 0f, 50f );
 					var intAmplitude = (int) Math.Clamp( amplitude, 0f, 100f );
 
-					// force state to off if both frequency and amplitude are zero (prevents buzzing pedals)
+					// force state to off if either frequency or amplitude are zero (prevents buzzing pedals)
 
-					if ( ( intFrequency == 0 ) && ( intAmplitude == 0 ) )
+					if ( ( intFrequency == 0 ) || ( intAmplitude == 0 ) )
 					{
+						intFrequency = 0;
+						intAmplitude = 0;
+
 						state = State.Off;
 					}
 
