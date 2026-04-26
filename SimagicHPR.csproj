@@ -5,6 +5,8 @@
     <RollForward>Major</RollForward>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Simagic</RootNamespace>
     <Title>Simagic HPR</Title>
   </PropertyGroup>
 

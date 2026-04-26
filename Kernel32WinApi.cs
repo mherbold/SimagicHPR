@@ -5,7 +5,7 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Simagic
 {
-	class Kernel32WinApi
+	internal static partial class Kernel32WinApi
 	{
 		public const uint GENERIC_READ = 0x80000000;
 		public const uint GENERIC_WRITE = 0x40000000;
@@ -16,9 +16,8 @@ namespace Simagic
 		public const int OPEN_EXISTING = 3;
 
 		public const uint FILE_ATTRIBUTE_NORMAL = 0x00000080;
-		public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
 
-		[DllImport( "kernel32.dll", EntryPoint = "CreateFileW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true )]
-		internal static extern SafeFileHandle CreateFile( string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile );
+		[LibraryImport( "kernel32.dll", EntryPoint = "CreateFileW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16 )]
+		internal static partial SafeFileHandle CreateFile( string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile );
 	}
 }

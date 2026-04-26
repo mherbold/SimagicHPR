@@ -4,10 +4,16 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Simagic
 {
-	public class HPR
+	/// <summary>
+	/// Controls haptic pedal rumble (HPR) on Simagic sim racing pedal controllers.
+	/// Call <see cref="Initialize"/> to connect, <see cref="VibratePedal"/> to send vibration
+	/// commands, and <see cref="Uninitialize"/> (or <see cref="Dispose"/>) to disconnect.
+	/// </summary>
+	public class HPR : IDisposable
 	{
 		// enums
 
+		/// <summary>Identifies the connected Simagic pedals model.</summary>
 		public enum PedalsDevice
 		{
 			None,
@@ -17,6 +23,7 @@ namespace Simagic
 			P2000
 		}
 
+		/// <summary>The individual pedal channel to target with a vibration command.</summary>
 		public enum Channel
 		{
 			Clutch = 0,
@@ -24,6 +31,7 @@ namespace Simagic
 			Throttle = 2
 		};
 
+		/// <summary>Whether vibration is active or inactive on a channel.</summary>
 		public enum State
 		{
 			Off = 0,
@@ -33,7 +41,7 @@ namespace Simagic
 		// 64 byte vibrate command packet
 
 		[StructLayout( LayoutKind.Sequential, Pack = 1 )]
-		private struct VibrateCommand
+		private unsafe struct VibrateCommand
 		{
 			public byte frameHeader = 0xF1;
 			public byte commandCode = 0xEC;
@@ -43,109 +51,76 @@ namespace Simagic
 			public required byte frequency;
 			public required byte amplitude;
 
-			public byte padding00 = 0;
-			public byte padding01 = 0;
-			public byte padding02 = 0;
-			public byte padding03 = 0;
-			public byte padding04 = 0;
-			public byte padding05 = 0;
-			public byte padding06 = 0;
-			public byte padding07 = 0;
-			public byte padding08 = 0;
-			public byte padding09 = 0;
-
-			public byte padding10 = 0;
-			public byte padding11 = 0;
-			public byte padding12 = 0;
-			public byte padding13 = 0;
-			public byte padding14 = 0;
-			public byte padding15 = 0;
-			public byte padding16 = 0;
-			public byte padding17 = 0;
-			public byte padding18 = 0;
-			public byte padding19 = 0;
-
-			public byte padding20 = 0;
-			public byte padding21 = 0;
-			public byte padding22 = 0;
-			public byte padding23 = 0;
-			public byte padding24 = 0;
-			public byte padding25 = 0;
-			public byte padding26 = 0;
-			public byte padding27 = 0;
-			public byte padding28 = 0;
-			public byte padding29 = 0;
-
-			public byte padding30 = 0;
-			public byte padding31 = 0;
-			public byte padding32 = 0;
-			public byte padding33 = 0;
-			public byte padding34 = 0;
-			public byte padding35 = 0;
-			public byte padding36 = 0;
-			public byte padding37 = 0;
-			public byte padding38 = 0;
-			public byte padding39 = 0;
-
-			public byte padding40 = 0;
-			public byte padding41 = 0;
-			public byte padding42 = 0;
-			public byte padding43 = 0;
-			public byte padding44 = 0;
-			public byte padding45 = 0;
-			public byte padding46 = 0;
-			public byte padding47 = 0;
-			public byte padding48 = 0;
-			public byte padding49 = 0;
-
-			public byte padding50 = 0;
-			public byte padding51 = 0;
-			public byte padding52 = 0;
-			public byte padding53 = 0;
-			public byte padding54 = 0;
-			public byte padding55 = 0;
-			public byte padding56 = 0;
-			public byte padding57 = 0;
+			public fixed byte padding[ 58 ];
 
 			public VibrateCommand()
 			{
 			}
 		};
 
+		static HPR()
+		{
+			var structSize = Marshal.SizeOf<VibrateCommand>();
+
+			if ( structSize != 64 )
+			{
+				throw new InvalidOperationException( $"VibrateCommand struct size is {structSize} bytes but must be exactly 64 bytes." );
+			}
+		}
+
 		// private members
 
+#if NET9_0_OR_GREATER
+		private readonly System.Threading.Lock _lock = new();
+#else
+		private readonly object _lock = new();
+#endif
+
+		private bool _disposed = false;
 		private bool _initialized = false;
 		private PedalsDevice _pedals = PedalsDevice.None;
 		private SafeFileHandle? _safeFileHandle = null;
 		private int _vibrateCommandStructSize = 0;
 		private IntPtr? _vibrateCommandBytes = null;
-		private int[] _lastState = new int[ Enum.GetValues<Channel>().Length ];
-		private int[] _lastFrequency = new int[ Enum.GetValues<Channel>().Length ];
-		private int[] _lastAmplitude = new int[ Enum.GetValues<Channel>().Length ];
+		private readonly int[] _lastState = new int[ Enum.GetValues<Channel>().Length ];
+		private readonly int[] _lastFrequency = new int[ Enum.GetValues<Channel>().Length ];
+		private readonly int[] _lastAmplitude = new int[ Enum.GetValues<Channel>().Length ];
 
-		// call Initialize() to connect to a Simagic pedals controller
-
+		/// <summary>
+		/// Scans the system for a supported Simagic pedal controller and opens a raw HID stream to it.
+		/// Safe to call multiple times; any previous connection is closed before reconnecting.
+		/// </summary>
+		/// <param name="enabled">
+		/// When <c>false</c> the device is detected but the HID stream is not opened and no
+		/// vibration commands will be sent.
+		/// </param>
+		/// <param name="onDeviceFound">
+		/// Optional callback invoked for every HID game-controller device found during the scan.
+		/// Useful for diagnostics.
+		/// </param>
+		/// <returns>The detected <see cref="PedalsDevice"/>, or <see cref="PedalsDevice.None"/> if no supported device was found.</returns>
 		public PedalsDevice Initialize( bool enabled, Action<string>? onDeviceFound = null )
 		{
 			// uninitialize in case we have previously initialized
 
 			Uninitialize();
 
-			// get the raw device list from windows and try to find either the P1000 or the P2000 pedal controller and open it as a raw device stream
+			// get the raw device list from windows and try to find a Simagic pedal controller and open it as a raw device stream
 
 			var rawInputDeviceList = GetRawInputDeviceList();
 
 			if ( rawInputDeviceList != null )
 			{
 				nint selectedDeviceHandle = 0;
+				string? selectedDeviceName = null;
 
 				foreach ( var device in rawInputDeviceList )
 				{
-					uint size = (uint) Marshal.SizeOf( typeof( User32WinApi.DeviceInfo ) );
+					uint size = (uint) Marshal.SizeOf<User32WinApi.DeviceInfo>();
 
 					var deviceInfo = new User32WinApi.DeviceInfo
 					{
-						Size = Marshal.SizeOf( typeof( User32WinApi.DeviceInfo ) )
+						Size = Marshal.SizeOf<User32WinApi.DeviceInfo>()
 					};
 
 					if ( User32WinApi.GetRawInputDeviceInfo( device.hDevice, User32WinApi.RIDI_DEVICEINFO, ref deviceInfo, ref size ) > 0 )
@@ -167,49 +142,61 @@ namespace Simagic
 
 							if ( isGameCtrl )
 							{
-								if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0903 ) )
+								// VID/PID matching is used to identify candidate devices; the friendly name must
+								// also confirm the model to guard against other peripherals sharing the same VID/PID
+
+								if ( ( vid == 0x3670 ) && ( pid == 0x0903 ) && ( friendlyName?.Contains( "P500", StringComparison.OrdinalIgnoreCase ) == true ) )
 								{
 									_pedals = PedalsDevice.P500;
-
 									selectedDeviceHandle = device.hDevice;
+									selectedDeviceName = deviceName;
 								}
-								else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0905 ) )
+								else if ( ( vid == 0x3670 ) && ( pid == 0x0905 ) && ( friendlyName?.Contains( "P700", StringComparison.OrdinalIgnoreCase ) == true ) )
 								{
 									_pedals = PedalsDevice.P700;
-
 									selectedDeviceHandle = device.hDevice;
+									selectedDeviceName = deviceName;
 								}
-								else if ( ( deviceInfo.HIDInfo.VendorID == 0x0483 ) && ( deviceInfo.HIDInfo.ProductID == 0x0525 ) )
+								else if ( ( vid == 0x0483 ) && ( pid == 0x0525 ) && ( friendlyName?.Contains( "P1000", StringComparison.OrdinalIgnoreCase ) == true ) )
 								{
 									_pedals = PedalsDevice.P1000;
-
 									selectedDeviceHandle = device.hDevice;
+									selectedDeviceName = deviceName;
 								}
-								else if ( ( deviceInfo.HIDInfo.VendorID == 0x3670 ) && ( deviceInfo.HIDInfo.ProductID == 0x0902 ) )
+								else if ( ( vid == 0x3670 ) && ( pid == 0x0902 ) && ( friendlyName?.Contains( "P2000", StringComparison.OrdinalIgnoreCase ) == true ) )
 								{
 									_pedals = PedalsDevice.P2000;
-
 									selectedDeviceHandle = device.hDevice;
+									selectedDeviceName = deviceName;
 								}
 							}
 						}
 					}
 				}
 
-				if ( ( selectedDeviceHandle != 0 ) && enabled )
+				if ( ( selectedDeviceHandle != 0 ) && ( selectedDeviceName != null ) && enabled )
 				{
-					_safeFileHandle = OpenRawDeviceStream( selectedDeviceHandle );
+					_safeFileHandle = OpenRawDeviceStream( selectedDeviceName );
 
 					if ( _safeFileHandle is not null && !_safeFileHandle.IsInvalid )
 					{
-						_vibrateCommandStructSize = Marshal.SizeOf( typeof( VibrateCommand ) );
+						_vibrateCommandStructSize = Marshal.SizeOf<VibrateCommand>();
 						_vibrateCommandBytes = Marshal.AllocHGlobal( _vibrateCommandStructSize );
 
 						_initialized = true;
 
-						VibratePedal( Channel.Clutch, State.Off, 0, 0 );
-						VibratePedal( Channel.Brake, State.Off, 0, 0 );
-						VibratePedal( Channel.Throttle, State.Off, 0, 0 );
+						try
+						{
+							VibratePedalCore( Channel.Clutch, State.Off, 0, 0 );
+							VibratePedalCore( Channel.Brake, State.Off, 0, 0 );
+							VibratePedalCore( Channel.Throttle, State.Off, 0, 0 );
+						}
+						catch
+						{
+							// if the initial stop commands fail, tear down cleanly rather than leaving a half-initialized state
+
+							Uninitialize();
+						}
 					}
 					else
 					{
@@ -218,46 +205,85 @@ namespace Simagic
 				}
 			}
 
-			// return true if we found the pedals
+			// return which pedals were found (None if not found or not enabled)
 
 			return _pedals;
 		}
 
-		// call this Uninitialize() to close down this system
-
+		/// <summary>
+		/// Stops all vibration and closes the HID device stream.
+		/// Safe to call even if <see cref="Initialize"/> was never called or already called.
+		/// </summary>
 		public void Uninitialize()
 		{
-			for ( var channel = Channel.Clutch; channel <= Channel.Throttle; channel++ )
+			lock ( _lock )
 			{
-				_lastState[ (int) channel ] = -1;
-				_lastFrequency[ (int) channel ] = -1;
-				_lastAmplitude[ (int) channel ] = -1;
-			}
+				try
+				{
+					if ( _initialized )
+					{
+						VibratePedalCore( Channel.Clutch, State.Off, 0, 0 );
+						VibratePedalCore( Channel.Brake, State.Off, 0, 0 );
+						VibratePedalCore( Channel.Throttle, State.Off, 0, 0 );
+					}
+				}
+				finally
+				{
+					_initialized = false;
+					_pedals = PedalsDevice.None;
 
-			VibratePedal( Channel.Clutch, State.Off, 0, 0 );
-			VibratePedal( Channel.Brake, State.Off, 0, 0 );
-			VibratePedal( Channel.Throttle, State.Off, 0, 0 );
+					_safeFileHandle?.Dispose();
+					_safeFileHandle = null;
 
-			_initialized = false;
+					if ( _vibrateCommandBytes is IntPtr bytesPtr )
+					{
+						Marshal.FreeHGlobal( bytesPtr );
 
-			if ( _safeFileHandle != null )
-			{
-				_safeFileHandle.Dispose();
+						_vibrateCommandBytes = null;
+					}
 
-				_safeFileHandle = null;
-			}
-
-			if ( _vibrateCommandBytes != null )
-			{
-				Marshal.FreeHGlobal( (IntPtr) _vibrateCommandBytes );
-
-				_vibrateCommandBytes = null;
+					for ( var channel = Channel.Clutch; channel <= Channel.Throttle; channel++ )
+					{
+						_lastState[ (int) channel ] = -1;
+						_lastFrequency[ (int) channel ] = -1;
+						_lastAmplitude[ (int) channel ] = -1;
+					}
+				}
 			}
 		}
 
-		// call VibratePedal() to vibrate one of the three pedals, frequency = 0-50, amplitude = 0-100
-
+		/// <summary>
+		/// Sends a vibration command to a single pedal.
+		/// Identical consecutive calls are deduplicated and will not re-send a HID feature report.
+		/// </summary>
+		/// <param name="channel">The pedal to target: <see cref="Channel.Clutch"/>, <see cref="Channel.Brake"/>, or <see cref="Channel.Throttle"/>.</param>
+		/// <param name="state"><see cref="State.On"/> to enable vibration, <see cref="State.Off"/> to disable it.</param>
+		/// <param name="frequency">Vibration frequency in the range 0–50. A value of 0 forces the channel off.</param>
+		/// <param name="amplitude">Vibration strength in the range 0–100. A value of 0 forces the channel off.</param>
 		public void VibratePedal( Channel channel, State state, float frequency, float amplitude )
+		{
+			lock ( _lock )
+			{
+				VibratePedalCore( channel, state, frequency, amplitude );
+			}
+		}
+
+		/// <inheritdoc/>
+		public void Dispose()
+		{
+			if ( !_disposed )
+			{
+				_disposed = true;
+
+				Uninitialize();
+
+				GC.SuppressFinalize( this );
+			}
+		}
+
+		// internal vibrate implementation — must be called with _lock held (or before _lock is needed, e.g. from Uninitialize)
+
+		private void VibratePedalCore( Channel channel, State state, float frequency, float amplitude )
 		{
 			if ( _initialized )
 			{
@@ -278,26 +304,21 @@ namespace Simagic
 						state = State.Off;
 					}
 
-					// only send update if something has changed
+					_lastState[ (int) channel ] = (int) state;
+					_lastFrequency[ (int) channel ] = intFrequency;
+					_lastAmplitude[ (int) channel ] = intAmplitude;
 
-					if ( ( _lastState[ (int) channel ] != (int) state ) || ( _lastFrequency[ (int) channel ] != intFrequency ) || ( _lastAmplitude[ (int) channel ] != intAmplitude ) )
+					var vibrateCommand = new VibrateCommand
 					{
-						_lastState[ (int) channel ] = (int) state;
-						_lastFrequency[ (int) channel ] = intFrequency;
-						_lastAmplitude[ (int) channel ] = intAmplitude;
+						channel = (byte) channel,
+						state = (byte) state,
+						frequency = (byte) intFrequency,
+						amplitude = (byte) intAmplitude
+					};
 
-						var vibrateCommand = new VibrateCommand
-						{
-							channel = (byte) channel,
-							state = (byte) state,
-							frequency = (byte) intFrequency,
-							amplitude = (byte) intAmplitude
-						};
+					Marshal.StructureToPtr( vibrateCommand, (IntPtr) _vibrateCommandBytes, false );
 
-						Marshal.StructureToPtr( vibrateCommand, (IntPtr) _vibrateCommandBytes, false );
-
-						HidWinApi.HidD_SetFeature( _safeFileHandle, (IntPtr) _vibrateCommandBytes, _vibrateCommandStructSize );
-					}
+					HidWinApi.HidD_SetFeature( _safeFileHandle, (IntPtr) _vibrateCommandBytes, _vibrateCommandStructSize );
 				}
 			}
 		}
@@ -313,7 +334,7 @@ namespace Simagic
 				return null;
 			}
 
-			static string? ReadHidString( Func<IntPtr, IntPtr, int, bool> fn, IntPtr h )
+			static string? ReadHidString( Func<SafeFileHandle, IntPtr, int, bool> fn, SafeFileHandle h )
 			{
 				const int byteLen = 512;
 
@@ -334,9 +355,8 @@ namespace Simagic
 				return null;
 			}
 
-			var h = safeFileHandle.DangerousGetHandle();
-			var manufacturer = ReadHidString( HidWinApi.HidD_GetManufacturerString, h );
-			var product = ReadHidString( HidWinApi.HidD_GetProductString, h );
+			var manufacturer = ReadHidString( HidWinApi.HidD_GetManufacturerString, safeFileHandle );
+			var product = ReadHidString( HidWinApi.HidD_GetProductString, safeFileHandle );
 
 			if ( !string.IsNullOrWhiteSpace( manufacturer ) && !string.IsNullOrWhiteSpace( product ) )
 			{
@@ -378,7 +398,7 @@ namespace Simagic
 		{
 			uint deviceCount = 0;
 
-			uint rawInputDeviceListSize = (uint) Marshal.SizeOf( typeof( User32WinApi.RAWINPUTDEVICELIST ) );
+			uint rawInputDeviceListSize = (uint) Marshal.SizeOf<User32WinApi.RAWINPUTDEVICELIST>();
 
 			uint result = User32WinApi.GetRawInputDeviceList( null, ref deviceCount, rawInputDeviceListSize );
 
@@ -399,15 +419,8 @@ namespace Simagic
 			return rawInputDeviceList;
 		}
 
-		private static SafeFileHandle? OpenRawDeviceStream( IntPtr hDevice )
+		private static SafeFileHandle? OpenRawDeviceStream( string deviceName )
 		{
-			var deviceName = GetDeviceName( hDevice );
-
-			if ( string.IsNullOrEmpty( deviceName ) )
-			{
-				return null;
-			}
-
 			return Kernel32WinApi.CreateFile( deviceName, Kernel32WinApi.GENERIC_READ | Kernel32WinApi.GENERIC_WRITE, Kernel32WinApi.FILE_SHARE_READ | Kernel32WinApi.FILE_SHARE_WRITE, IntPtr.Zero, Kernel32WinApi.OPEN_EXISTING, Kernel32WinApi.FILE_ATTRIBUTE_NORMAL, IntPtr.Zero );
 		}
 	}

@@ -5,15 +5,18 @@ using Microsoft.Win32.SafeHandles;
 
 namespace Simagic
 {
-	class HidWinApi
+	internal static partial class HidWinApi
 	{
-		[DllImport( "hid.dll", SetLastError = true )]
-		internal static extern Boolean HidD_SetFeature( SafeFileHandle HidDeviceObject, IntPtr lpReportBuffer, Int32 ReportBufferLength );
+		[LibraryImport( "hid.dll", SetLastError = true )]
+		[return: MarshalAs( UnmanagedType.Bool )]
+		internal static partial bool HidD_SetFeature( SafeFileHandle HidDeviceObject, IntPtr lpReportBuffer, int ReportBufferLength );
 
-		[DllImport( "hid.dll", SetLastError = true, ExactSpelling = true )]
-		internal static extern bool HidD_GetProductString( IntPtr hDevice, IntPtr buffer, int bufferLength );
+		[LibraryImport( "hid.dll", SetLastError = true )]
+		[return: MarshalAs( UnmanagedType.Bool )]
+		internal static partial bool HidD_GetProductString( SafeFileHandle hDevice, IntPtr buffer, int bufferLength );
 
-		[DllImport( "hid.dll", SetLastError = true, ExactSpelling = true )]
-		internal static extern bool HidD_GetManufacturerString( IntPtr hDevice, IntPtr buffer, int bufferLength );
+		[LibraryImport( "hid.dll", SetLastError = true )]
+		[return: MarshalAs( UnmanagedType.Bool )]
+		internal static partial bool HidD_GetManufacturerString( SafeFileHandle hDevice, IntPtr buffer, int bufferLength );
 	}
 }

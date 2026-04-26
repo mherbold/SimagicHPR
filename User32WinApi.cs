@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 
 namespace Simagic
 {
-	public static class User32WinApi
+	internal static partial class User32WinApi
 	{
 		[StructLayout( LayoutKind.Explicit )]
 		public struct DeviceInfo
@@ -65,13 +65,13 @@ namespace Simagic
 		public const uint RIDI_DEVICENAME = 0x20000007;
 		public const uint RIDI_DEVICEINFO = 0x2000000b;
 
-		[DllImport( "user32.dll", ExactSpelling = true, SetLastError = true, EntryPoint = "GetRawInputDeviceInfoW", CharSet = CharSet.Unicode )]
-		public static extern uint GetRawInputDeviceInfo( nint hDevice, uint uiCommand, nint pData, ref uint pcbSize );
+		[LibraryImport( "user32.dll", EntryPoint = "GetRawInputDeviceInfoW", SetLastError = true )]
+		public static partial uint GetRawInputDeviceInfo( nint hDevice, uint uiCommand, nint pData, ref uint pcbSize );
 
-		[DllImport( "user32.dll", ExactSpelling = true, SetLastError = true, EntryPoint = "GetRawInputDeviceInfoW", CharSet = CharSet.Unicode )]
-		public static extern uint GetRawInputDeviceInfo( nint hDevice, uint uiCommand, ref DeviceInfo pData, ref uint pcbSize );
+		[LibraryImport( "user32.dll", EntryPoint = "GetRawInputDeviceInfoW", SetLastError = true )]
+		public static partial uint GetRawInputDeviceInfo( nint hDevice, uint uiCommand, ref DeviceInfo pData, ref uint pcbSize );
 
-		[DllImport( "user32.dll", SetLastError = true, CharSet = CharSet.Auto )]
-		public static extern uint GetRawInputDeviceList( [In, Out] RAWINPUTDEVICELIST[]? RawInputDeviceList, ref uint NumDevices, uint Size );
+		[LibraryImport( "user32.dll", EntryPoint = "GetRawInputDeviceList", SetLastError = true )]
+		public static partial uint GetRawInputDeviceList( RAWINPUTDEVICELIST[]? RawInputDeviceList, ref uint NumDevices, uint Size );
 	}
 }
