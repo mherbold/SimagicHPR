@@ -145,27 +145,31 @@ namespace Simagic
 								// VID/PID matching is used to identify candidate devices; the friendly name must
 								// also confirm the model to guard against other peripherals sharing the same VID/PID
 
-								if ( ( vid == 0x3670 ) && ( pid == 0x0903 ) && ( friendlyName?.Contains( "P500", StringComparison.OrdinalIgnoreCase ) == true ) )
+								if ( IsP500Pedals( vid, pid, friendlyName ) )
 								{
 									_pedals = PedalsDevice.P500;
+
 									selectedDeviceHandle = device.hDevice;
 									selectedDeviceName = deviceName;
 								}
-								else if ( ( vid == 0x3670 ) && ( pid == 0x0905 ) && ( friendlyName?.Contains( "P700", StringComparison.OrdinalIgnoreCase ) == true ) )
+								else if ( IsP700Pedals( vid, pid, friendlyName ) )
 								{
 									_pedals = PedalsDevice.P700;
+
 									selectedDeviceHandle = device.hDevice;
 									selectedDeviceName = deviceName;
 								}
-								else if ( ( vid == 0x0483 ) && ( pid == 0x0525 ) && ( friendlyName?.Contains( "P1000", StringComparison.OrdinalIgnoreCase ) == true ) )
+								else if ( IsP1000Pedals( vid, pid, friendlyName ) )
 								{
 									_pedals = PedalsDevice.P1000;
+
 									selectedDeviceHandle = device.hDevice;
 									selectedDeviceName = deviceName;
 								}
-								else if ( ( vid == 0x3670 ) && ( pid == 0x0902 ) && ( friendlyName?.Contains( "P2000", StringComparison.OrdinalIgnoreCase ) == true ) )
+								else if ( IsP2000Pedals( vid, pid, friendlyName ) )
 								{
 									_pedals = PedalsDevice.P2000;
+
 									selectedDeviceHandle = device.hDevice;
 									selectedDeviceName = deviceName;
 								}
@@ -324,6 +328,35 @@ namespace Simagic
 		}
 
 		// private functions for internal use
+
+		private static bool IsP500Pedals( uint vid, uint pid, string? friendlyName )
+		{
+			return ( vid == 0x3670 )
+				&& ( pid == 0x0903 )
+				&& ( ( friendlyName?.Contains( "P500", StringComparison.OrdinalIgnoreCase ) == true )
+					|| ( friendlyName?.Contains( "Alpha Pedal Neo", StringComparison.OrdinalIgnoreCase ) == true ) );
+		}
+
+		private static bool IsP700Pedals( uint vid, uint pid, string? friendlyName )
+		{
+			return ( vid == 0x3670 )
+				&& ( pid == 0x0905 )
+				&& ( friendlyName?.Contains( "P700", StringComparison.OrdinalIgnoreCase ) == true );
+		}
+
+		private static bool IsP1000Pedals( uint vid, uint pid, string? friendlyName )
+		{
+			return ( vid == 0x0483 )
+				&& ( pid == 0x0525 )
+				&& ( friendlyName?.Contains( "P1000", StringComparison.OrdinalIgnoreCase ) == true );
+		}
+
+		private static bool IsP2000Pedals( uint vid, uint pid, string? friendlyName )
+		{
+			return ( vid == 0x3670 )
+				&& ( pid == 0x0902 )
+				&& ( friendlyName?.Contains( "P2000", StringComparison.OrdinalIgnoreCase ) == true );
+		}
 
 		private static string? GetFriendlyName( string deviceName )
 		{
